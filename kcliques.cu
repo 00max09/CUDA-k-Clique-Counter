@@ -13,15 +13,33 @@ __global__ sort_edges(int* input, int*input_vertex_places){
     int start_main_edge = input_vertex_places[main_vertex];
     int end_main_edge = input_vertex_places[main_vertex + 1];
     int len = end_main_edge-start_main_edge;
-    for(int i = 1; i<=2*end_main_edge-start_main_edge;i*=2)
+    to_sort[threadIdx.x] = input[start_main_edge + threadIdx.x];
+    __syncthreads();
+    for(int i = 2; i<=2*end_main_edge-start_main_edge;i*=2)
     {
         if(threadIdx.x * i <len)
         {
-            //
+           int start = threadIdx * i;
+           int end = min(start + i, len);
+           int mid = min(start + i/2,len);
+           int mid2 = start+i/2;
+           int count = threadIdx * i;
+           while(mid2 < mid || start<mid){
+                if(start<mid && to_sort[start]<to_sort[mid2]){
+                    to_sort2[count] = to_sort[start];
+                    start++;
+                }else{
+                    to_sort2[count] = to_sort[end];
+                    end++;
+                }
+                count++;
+           }
         }
         __syncthreads();
+        to_sort[threadIdx.x] = to_sort2[threadIdx.x];
+        __syncthreads();
     }
-
+    input[start_main_edge + threadIdx.x] = to_sort[threadIdx.x];
 }
 
 __global__ kcliques(int k, int *input, int *input_vertex_places, int *output) {
@@ -154,7 +172,7 @@ int main(int argc, char *argv[]) {
     cudaMemcpy(vertex_places_gpu, vertex_places.data(), sizeof(int) * (vertex_num+1), cudaMemcpyHostToDevice);
     cudaMemcpy(output_gpu, output, sizeof(int) * k, cudaMemcpyHostToDevice);
     
-    sort_edges<<<vertex_num, MAX_DEGREE>>>(edges_gpu, vertex_places_gpu);
+    sort_edges<<<vertex_num, MAX_DEGREE>>>(edges_gpu, vertex_places_gpu); //optimize to infinity
     kcliques<<<vertex_num, MAX_DEGREE>>>(edges_gpu, vertex_places_gpu, k, output_gpu);
     cudaMemcpy(output, output_gpu, sizeof(int) * k, cudaMemcpyDeviceToHost);
     
