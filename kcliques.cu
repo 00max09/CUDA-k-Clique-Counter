@@ -121,20 +121,24 @@ __global__ void kcliques(int k, int *input, int *input_vertex_places, int *outpu
         }
         int stack_pointer = 2;
         int actual_stack_values[MAX_DEPTH][MAX_DEGREE / 32], pos = MAX_DEGREE / 32 - 1;
-        for (int i = offsets[threadIdx.x + 1]; i >= offsets[threadIdx.x]; i--)
+        for (int i = offsets[threadIdx.x + 1] - 1 ; i >= offsets[threadIdx.x]; i--)
         {
             actual_stack_values[1][pos] = sh_mem[i];
             pos--;
         }
-                    
-        stack[0] = main_vertex;
-        stack[1] = threadIdx.x;
-        stack[2] = threadIdx.x + 1;
+        while(pos>=0)
+        {
+            actual_stack_values[1][pos]= 0;
+            pos--;
+        }
+        stack[0] = main_vertex; //does not matter
+        stack[1] = threadIdx.x; //intersection of first vector and second vector
+        stack[2] = threadIdx.x;
         while (stack_pointer >= 2)
         {
-            printf("%d %d %d %d\n", stack[0], stack[1], stack[2], stack[3]);
             stack[stack_pointer]++;
-            if (stack[stack_pointer] > MAX_DEGREE)
+            printf("%d %d %d %d\n", stack[0], stack[1], stack[2], stack[3]);
+            if (stack[stack_pointer] >= MAX_DEGREE)
             {
                 stack_pointer--;
                 // for (int i = 0; i < stack_pointer; i++)
@@ -152,23 +156,24 @@ __global__ void kcliques(int k, int *input, int *input_vertex_places, int *outpu
                 //     }
                 // }
             }
-            if (actual_stack_values[threadIdx.x][stack[stack_pointer] / 32] & 1 << stack[stack_pointer] % 32) // if 1 is on stack_ptr
+            if (actual_stack_values[threadIdx.x][stack[stack_pointer] / 32] & (1 << stack[stack_pointer] % 32)) // if 1 is on stack_ptr
             {
                 res[stack_pointer]++;
                 if (stack_pointer < k - 1)
                 {
-                    stack_pointer++;
                     int posx = MAX_DEGREE / 32 - 1;
-                    for (int i = offsets[stack[stack_pointer] + 1]; i >= offsets[stack[stack_pointer]]; i--)
+                    for (int i = offsets[stack[stack_pointer] + 1] - 1; i >= offsets[stack[stack_pointer]]; i--)
                     {
                         actual_stack_values[stack_pointer][posx] = sh_mem[i] & actual_stack_values[stack_pointer - 1][posx];
                         posx--;
                     }
-                    // for (int i = stack[stack_pointer] / 32; i < MAX_DEGREE / 32; i++)
-                    // {
-                    //     actual_stack_values[stack_pointer][i] &= incidence_matrix[stack[stack_pointer]][i];
-                    // }
-                    stack[stack_pointer] = stack[stack_pointer - 1] + 1;
+                    while(posx>=0)
+                    {
+                        actual_stack_values[stack_pointer][posx] = 0;
+                        posx--;
+                    }
+                    stack_pointer++;
+                    stack[stack_pointer] = stack[stack_pointer - 1];
                 }
             }
         }
