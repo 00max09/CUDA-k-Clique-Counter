@@ -30,3 +30,13 @@
 *.exe
 *.out
 *.app
+
+my_tests
+tests
+.vs
+.vscode
+data.in
+data.out
+com-dblp.ungraph.txt
+output
+a.exp

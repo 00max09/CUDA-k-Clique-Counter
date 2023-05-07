@@ -3,10 +3,12 @@
 #include <vector>
 #include <string>
 #include <stdio.h>
+#include <unordered_map>
 #include "common/errors.h"
-#define MAX_DEGREE 1024
+#define MAX_DEGREE 768
 #define MAX_DEPTH 12
 #define OFFSET (MAX_DEGREE + 2) * MAX_DEGREE / 64
+#define MOD 1000000000
 
 __constant__ int offsets[MAX_DEGREE];
 __global__ void sort_edges(int *input, int *input_vertex_places)
@@ -22,7 +24,6 @@ __global__ void sort_edges(int *input, int *input_vertex_places)
     if (threadIdx.x < end_main_edge - start_main_edge)
     {
         to_sort[threadIdx.x] = input[start_main_edge + threadIdx.x];
-        printf("%d %d %d %d\n", main_vertex, start_main_edge, end_main_edge, threadIdx.x);
     }
     __syncthreads();
     for (int i = 2; i < 2 * len; i *= 2)
@@ -36,7 +37,7 @@ __global__ void sort_edges(int *input, int *input_vertex_places)
             int count = threadIdx.x * i;
             while (mid2 < end || start < mid)
             {
-                if (start < mid && (mid2 == end || to_sort[start] < to_sort[mid2]))
+                if (start < mid && (mid2 >= end || to_sort[start] < to_sort[mid2]))
                 {
                     to_sort2[count] = to_sort[start];
                     start++;
@@ -47,7 +48,6 @@ __global__ void sort_edges(int *input, int *input_vertex_places)
                     mid2++;
                 }
                 count++;
-                printf("%d %d %d %d \n", count, mid2, start, len);
             }
         }
         __syncthreads();
@@ -63,127 +63,111 @@ __global__ void sort_edges(int *input, int *input_vertex_places)
     }
 }
 
-__global__ void kcliques(int k, int *input, int *input_vertex_places, int *output)
+__global__ void kcliques(int k, int *input, int *input_vertex_places, unsigned long long int *output)
 {
     extern __shared__ int sh_mem[];
     int main_vertex = blockIdx.x;
-    // printf("%d \n",4 * MAX_DEGREE * MAX_DEGREE /32);
-    // return;
-
-    //__shared__ int incidence_matrix[MAX_DEGREE][MAX_DEGREE / 32];
-    //__shared__ int main_input[MAX_DEGREE]; // copy there
 
     int start_main_edge = input_vertex_places[main_vertex];
     int end_main_edge = input_vertex_places[main_vertex + 1];
     int len = end_main_edge - start_main_edge;
+    int not_used = MAX_DEGREE / 32 - (len / 32 + 1);
     if (threadIdx.x < len)
     {
         sh_mem[OFFSET + threadIdx.x] = input[start_main_edge + threadIdx.x];
-        for (int i = 0; i <= len / 32; i++)
+        for (int i = offsets[threadIdx.x]; i < offsets[threadIdx.x + 1]; i++)
         {
-            sh_mem[offsets[threadIdx.x] + i] = 0;
-            printf("%d %d \n", threadIdx.x, i);
+            sh_mem[i] = 0;
         }
     }
     __syncthreads();
     int actual_main_edge = 0;
-    // printf("FOG");
     if (threadIdx.x < end_main_edge - start_main_edge)
     {
-        printf("%d %d %d %d\n", main_vertex, start_main_edge, end_main_edge, threadIdx.x);
 
-        int start_my_edge = input_vertex_places[input[start_main_edge + threadIdx.x]];   // if x to big don't do
-        int end_my_edge = input_vertex_places[input[start_main_edge + threadIdx.x] + 1]; // if x to big don't do
-
-        printf("xd %d %d %d %d\n", main_vertex, start_my_edge, end_my_edge, threadIdx.x);
-        // return;
+        int start_my_edge = input_vertex_places[input[start_main_edge + threadIdx.x]];
+        int end_my_edge = input_vertex_places[input[start_main_edge + threadIdx.x] + 1];
+        unsigned long long int res[MAX_DEPTH];
+        for (int i = 0; i < k; i++)
+        {
+            res[i] = 0;
+        }
         for (int i = start_my_edge; i < end_my_edge; i++)
         {
-           // printf("gowno");
             while (actual_main_edge < len && sh_mem[OFFSET + actual_main_edge] < input[i])
             {
                 actual_main_edge++;
             }
             if (actual_main_edge < len && sh_mem[OFFSET + actual_main_edge] == input[i])
             {
-                // printf("%d %d %d\n", main_vertex, threadIdx.x, actual_main_edge);
-           //    printf("%d %d %d \n", threadIdx.x, actual_main_edge / 32, (1 << (actual_main_edge % 32)));
-
-                // return;
-                sh_mem[offsets[threadIdx.x] + actual_main_edge / 32] += (1 << (actual_main_edge % 32)); // to check move
+                sh_mem[offsets[threadIdx.x + 1] - MAX_DEGREE / 32 + actual_main_edge / 32] += (1 << (actual_main_edge % 32));
+                res[2]++;
             }
         }
         int stack[MAX_DEPTH];
-        int res[MAX_DEPTH];
-        for (int i = 0; i < k; i++)
-        {
-            res[i] = 0;
-        }
+
         int stack_pointer = 2;
         int actual_stack_values[MAX_DEPTH][MAX_DEGREE / 32], pos = MAX_DEGREE / 32 - 1;
-        for (int i = offsets[threadIdx.x + 1] - 1 ; i >= offsets[threadIdx.x]; i--)
+        for (int i = offsets[threadIdx.x + 1] - 1; i >= offsets[threadIdx.x]; i--)
         {
             actual_stack_values[1][pos] = sh_mem[i];
             pos--;
         }
-        while(pos>=0)
+        while (pos >= 0)
         {
-            actual_stack_values[1][pos]= 0;
+            actual_stack_values[1][pos] = 0;
             pos--;
         }
-        stack[0] = main_vertex; //does not matter
-        stack[1] = threadIdx.x; //intersection of first vector and second vector
+        stack[0] = main_vertex; // does not matter
+        stack[1] = threadIdx.x; // intersection of first vector and second vector
         stack[2] = threadIdx.x;
         while (stack_pointer >= 2)
         {
             stack[stack_pointer]++;
-            printf("%d %d %d %d\n", stack[0], stack[1], stack[2], stack[3]);
-            if (stack[stack_pointer] >= MAX_DEGREE)
+            if (stack[stack_pointer] >= len)
             {
                 stack_pointer--;
-                // for (int i = 0; i < stack_pointer; i++)
-                // {
-                //     for (int z = stack[stack_pointer] / 32; i < MAX_DEGREE / 32; i++)
-                //     {
-                //         if (i == 0)
-                //         {
-                //             actual_stack_values[threadIdx.x][z] = incidence_matrix[stack[i]][z];
-                //         }
-                //         else
-                //         {
-                //             actual_stack_values[threadIdx.x][z] &= incidence_matrix[stack[i]][z];
-                //         }
-                //     }
-                // }
             }
-            if (actual_stack_values[threadIdx.x][stack[stack_pointer] / 32] & (1 << stack[stack_pointer] % 32)) // if 1 is on stack_ptr
+            else if (actual_stack_values[stack_pointer - 1][stack[stack_pointer] / 32] & (1 << (stack[stack_pointer] % 32))) // if 1 is on stack_ptr
             {
-                res[stack_pointer]++;
-                if (stack_pointer < k - 1)
+
+                int posx = MAX_DEGREE / 32 - 1 - not_used;
+                int val = 0;
+                int count = 0;
+
+                // printf("%d\n", not_used);
+                for (int i = offsets[stack[stack_pointer] + 1] - 1 - not_used; i >= offsets[stack[stack_pointer]]; i--)
                 {
-                    int posx = MAX_DEGREE / 32 - 1;
-                    for (int i = offsets[stack[stack_pointer] + 1] - 1; i >= offsets[stack[stack_pointer]]; i--)
-                    {
-                        actual_stack_values[stack_pointer][posx] = sh_mem[i] & actual_stack_values[stack_pointer - 1][posx];
-                        posx--;
-                    }
-                    while(posx>=0)
+                    int x = sh_mem[i] & actual_stack_values[stack_pointer - 1][posx];
+                    actual_stack_values[stack_pointer][posx] = x;
+                    count += __popc(x);
+                    val |= x;
+                    posx--;
+                }
+                res[stack_pointer + 1] += count;
+
+                if (val != 0 && stack_pointer < k - 2)
+                {
+                    while (posx >= 0)
                     {
                         actual_stack_values[stack_pointer][posx] = 0;
                         posx--;
                     }
+
                     stack_pointer++;
+
                     stack[stack_pointer] = stack[stack_pointer - 1];
                 }
             }
         }
+
         for (int i = 0; i < k; i++)
         {
-            atomicAdd(&output[i], res[i]); // to optimize
+            atomicAdd(&output[i], res[i] % MOD); // to optimize
         }
     }
 }
-
+std::unordered_map<int, int> renum_vertex;
 int main(int argc, char *argv[])
 {
     if (argc != 4)
@@ -201,13 +185,27 @@ int main(int argc, char *argv[])
 
     while (input >> a >> b)
     {
+        if (renum_vertex.find(a) == renum_vertex.end())
+        {
+            renum_vertex[a] = vertex_num;
+            vertex_num++;
+        }
+        a = renum_vertex[a];
+        if (renum_vertex.find(b) == renum_vertex.end())
+        {
+            renum_vertex[b] = vertex_num;
+            vertex_num++;
+        }
+        b = renum_vertex[b];
+
         if (a > b)
         {
             std::swap(a, b);
         }
+
         edges_list.emplace_back(a, b);
-        vertex_num = std::max(vertex_num, b);
     }
+    vertex_num--;
     for (int i = 0; i < vertex_num; i++)
     {
         edges.emplace_back();
@@ -226,19 +224,20 @@ int main(int argc, char *argv[])
         }
         counter += edges[i].size();
     }
-    int output[k];
+    unsigned long long int output[MAX_DEGREE];
     for (int i = 0; i < k; i++)
     {
         output[i] = 0;
     }
     vertex_places.push_back(counter);
-    int *edges_gpu, *vertex_places_gpu, *output_gpu;
+    int *edges_gpu, *vertex_places_gpu;
+    unsigned long long int *output_gpu;
     HANDLE_ERROR(cudaMalloc(&edges_gpu, sizeof(int) * edges_sorted.size()));
     HANDLE_ERROR(cudaMalloc(&vertex_places_gpu, sizeof(int) * (vertex_num + 1)));
-    HANDLE_ERROR(cudaMalloc(&output_gpu, sizeof(int) * k));
+    HANDLE_ERROR(cudaMalloc(&output_gpu, sizeof(unsigned long long int) * k));
     HANDLE_ERROR(cudaMemcpy(edges_gpu, edges_sorted.data(), sizeof(int) * edges_sorted.size(), cudaMemcpyHostToDevice));
     HANDLE_ERROR(cudaMemcpy(vertex_places_gpu, vertex_places.data(), sizeof(int) * (vertex_num + 1), cudaMemcpyHostToDevice));
-    HANDLE_ERROR(cudaMemcpy(output_gpu, output, sizeof(int) * k, cudaMemcpyHostToDevice));
+    HANDLE_ERROR(cudaMemcpy(output_gpu, output, sizeof(unsigned long long int) * k, cudaMemcpyHostToDevice));
     // HANDLE_ERROR(cudaDeviceSynchronize());
     int constants_to_gpu[MAX_DEGREE], mem_offset = MAX_DEGREE;
     constants_to_gpu[0] = 0;
@@ -249,29 +248,21 @@ int main(int argc, char *argv[])
     }
     cudaMemcpyToSymbol(offsets, constants_to_gpu, sizeof(int) * MAX_DEGREE);
     sort_edges<<<vertex_num, MAX_DEGREE>>>(edges_gpu, vertex_places_gpu); // optimize to infinity
-                                                                          // cudaMemcpy(edges_sorted.data(), edges_gpu, sizeof(int) * edges_sorted.size(), cudaMemcpyDeviceToHost);
 
-    // for(int i=0;i<edges_sorted.size();i++)
-    //{
-    //     output_stream<<edges_sorted[i]<<" ";
-    // }
-    // output_stream<<"\n";
-    // return 0;
-    HANDLE_ERROR(cudaDeviceSynchronize());
+    // HANDLE_ERROR(cudaDeviceSynchronize());
 
-    printf("%d", vertex_num);
-    printf("xddd %ld \n", sizeof(int) * (MAX_DEGREE * MAX_DEGREE / 32 + MAX_DEGREE));
-    int maxbytes = 98304;
+    int maxbytes = 65536;
+    // int maxbytes = 98304; to restore
     cudaFuncSetAttribute(kcliques, cudaFuncAttributeMaxDynamicSharedMemorySize, maxbytes);
     kcliques<<<vertex_num, MAX_DEGREE, maxbytes>>>(k, edges_gpu, vertex_places_gpu, output_gpu);
-    // HANDLE_ERROR(cudaMemcpy(output, output_gpu, sizeof(int) * k, cudaMemcpyDeviceToHost));
-    HANDLE_ERROR(cudaDeviceSynchronize());
-    printf("%d", k);
-
+    HANDLE_ERROR(cudaMemcpy(output, output_gpu, sizeof(unsigned long long int) * k, cudaMemcpyDeviceToHost));
+    // HANDLE_ERROR(cudaDeviceSynchronize());
+    output[0] = vertex_num + 1;
+    output[1] = edges_sorted.size();
     std::ofstream output_stream;
     output_stream.open(std::string(argv[3]));
     for (int i = 0; i < k; i++)
     {
-        output_stream << output[i] << " ";
+        output_stream << output[i] % MOD << " ";
     }
 }
