@@ -184,7 +184,7 @@ __global__ void kcliques(int k, int *input, int *input_vertex_places, unsigned l
         }
     }
 }
-std::unordered_map<int, int> renum_vertex;
+std::unordered_map<unsigned int, unsigned int> renum_vertex;
 int main(int argc, char *argv[])
 {
     if (argc != 4)
@@ -196,9 +196,9 @@ int main(int argc, char *argv[])
     std::ifstream input;
     input.open(std::string(argv[1]));
     unsigned int a, b, vertex_num = 0;
-    std::vector<std::pair<int, int>> edges_list;
-    std::vector<std::vector<int>> edges;
-    std::vector<int> edges_sorted, vertex_places, deg_count;
+    std::vector<std::pair<unsigned int, unsigned int>> edges_list;
+    std::vector<std::vector<unsigned int>> edges;
+    std::vector<unsigned int> edges_sorted, vertex_places, deg_count;
 
     while (input >> a >> b)
     {
