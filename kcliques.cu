@@ -13,6 +13,7 @@
 #define MOD 1000000000
 
 __constant__ int offsets[MAX_DEGREE + 1];
+
 __global__ void sort_edges(int *input, int *input_vertex_places)
 {
     __shared__ int to_sort[MAX_DEGREE];
@@ -94,12 +95,13 @@ __global__ void kcliques(int k, int *input, int *input_vertex_places, unsigned l
   
     __syncthreads();
     int actual_main_edge = threadIdx.x + 1 ;
+    unsigned long long int res[MAX_DEPTH];
+        
     if (threadIdx.x < end_main_edge - start_main_edge)
     {
 
         int start_my_edge = input_vertex_places[input[start_main_edge + threadIdx.x]];
         int end_my_edge = input_vertex_places[input[start_main_edge + threadIdx.x] + 1];
-        unsigned long long int res[MAX_DEPTH];
         for (int i = 0; i < k; i++)
         {
             res[i] = 0;
@@ -116,6 +118,11 @@ __global__ void kcliques(int k, int *input, int *input_vertex_places, unsigned l
                 res[2]++;
             }
         }
+    }
+    __syncthreads();
+    if (threadIdx.x < end_main_edge - start_main_edge)
+    {
+    
         int stack[MAX_DEPTH];
         int stack_pointer = 2;
         int actual_stack_values[MAX_DEPTH][MAX_DEGREE / 32], pos = MAX_DEGREE / 32 - 1;
@@ -177,7 +184,7 @@ __global__ void kcliques(int k, int *input, int *input_vertex_places, unsigned l
         }
     }
 }
-std::map<int, int> renum_vertex;
+std::unordered_map<int, int> renum_vertex;
 int main(int argc, char *argv[])
 {
     if (argc != 4)
@@ -231,7 +238,6 @@ int main(int argc, char *argv[])
     
     for(int i=0;i<vertex_num;i++)
     {
-        //std::cout<<vert_sort[i].first<<" "<<vert_sort[i].second<<"\n";
         vert_pos[vert_sort[i].second] = i; 
     }
 
