@@ -4,13 +4,15 @@
 #include <string>
 #include <stdio.h>
 #include <unordered_map>
+#include <algorithm>
+#include <map>
 #include "common/errors.h"
 #define MAX_DEGREE 768
 #define MAX_DEPTH 12
 #define OFFSET (MAX_DEGREE + 2) * MAX_DEGREE / 64
 #define MOD 1000000000
 
-__constant__ int offsets[MAX_DEGREE];
+__constant__ int offsets[MAX_DEGREE + 1];
 __global__ void sort_edges(int *input, int *input_vertex_places)
 {
     __shared__ int to_sort[MAX_DEGREE];
@@ -60,18 +62,27 @@ __global__ void sort_edges(int *input, int *input_vertex_places)
     if (threadIdx.x < end_main_edge - start_main_edge)
     {
         input[start_main_edge + threadIdx.x] = to_sort[threadIdx.x];
+        if(threadIdx.x !=0)
+        {
+            if(to_sort[threadIdx.x]<to_sort[threadIdx.x-1])
+            {
+                printf("SEFRR");
+            }
+        }
     }
+    
 }
 
 __global__ void kcliques(int k, int *input, int *input_vertex_places, unsigned long long int *output)
 {
     extern __shared__ int sh_mem[];
     int main_vertex = blockIdx.x;
-
+    
     int start_main_edge = input_vertex_places[main_vertex];
     int end_main_edge = input_vertex_places[main_vertex + 1];
     int len = end_main_edge - start_main_edge;
-    int not_used = MAX_DEGREE / 32 - (len / 32 + 1);
+    int used = (len - 1) / 32 + 1;
+    int not_used = max(MAX_DEGREE / 32 - used, 0);
     if (threadIdx.x < len)
     {
         sh_mem[OFFSET + threadIdx.x] = input[start_main_edge + threadIdx.x];
@@ -80,8 +91,9 @@ __global__ void kcliques(int k, int *input, int *input_vertex_places, unsigned l
             sh_mem[i] = 0;
         }
     }
+  
     __syncthreads();
-    int actual_main_edge = 0;
+    int actual_main_edge = threadIdx.x + 1 ;
     if (threadIdx.x < end_main_edge - start_main_edge)
     {
 
@@ -105,7 +117,6 @@ __global__ void kcliques(int k, int *input, int *input_vertex_places, unsigned l
             }
         }
         int stack[MAX_DEPTH];
-
         int stack_pointer = 2;
         int actual_stack_values[MAX_DEPTH][MAX_DEGREE / 32], pos = MAX_DEGREE / 32 - 1;
         for (int i = offsets[threadIdx.x + 1] - 1; i >= offsets[threadIdx.x]; i--)
@@ -135,7 +146,6 @@ __global__ void kcliques(int k, int *input, int *input_vertex_places, unsigned l
                 int val = 0;
                 int count = 0;
 
-                // printf("%d\n", not_used);
                 for (int i = offsets[stack[stack_pointer] + 1] - 1 - not_used; i >= offsets[stack[stack_pointer]]; i--)
                 {
                     int x = sh_mem[i] & actual_stack_values[stack_pointer - 1][posx];
@@ -167,7 +177,7 @@ __global__ void kcliques(int k, int *input, int *input_vertex_places, unsigned l
         }
     }
 }
-std::unordered_map<int, int> renum_vertex;
+std::map<int, int> renum_vertex;
 int main(int argc, char *argv[])
 {
     if (argc != 4)
@@ -181,7 +191,7 @@ int main(int argc, char *argv[])
     unsigned int a, b, vertex_num = 0;
     std::vector<std::pair<int, int>> edges_list;
     std::vector<std::vector<int>> edges;
-    std::vector<int> edges_sorted, vertex_places;
+    std::vector<int> edges_sorted, vertex_places, deg_count;
 
     while (input >> a >> b)
     {
@@ -197,21 +207,42 @@ int main(int argc, char *argv[])
             vertex_num++;
         }
         b = renum_vertex[b];
-
-        if (a > b)
-        {
-            std::swap(a, b);
-        }
-
         edges_list.emplace_back(a, b);
     }
-    vertex_num--;
+    std::vector <int> vert_pos;
     for (int i = 0; i < vertex_num; i++)
     {
         edges.emplace_back();
+        deg_count.push_back(0);
+        vert_pos.push_back(0);
     }
     for (int i = 0; i < edges_list.size(); i++)
     {
+        deg_count[edges_list[i].first]++;
+        deg_count[edges_list[i].second]++;
+    }
+    std::vector <std::pair<int,int>> vert_sort{};
+    for (int i = 0; i < vertex_num; i++)
+    {
+        vert_sort.emplace_back(deg_count[i], i);
+    }
+    std::sort(vert_sort.begin(), vert_sort.end());
+    
+    
+    for(int i=0;i<vertex_num;i++)
+    {
+        //std::cout<<vert_sort[i].first<<" "<<vert_sort[i].second<<"\n";
+        vert_pos[vert_sort[i].second] = i; 
+    }
+
+    for (int i = 0; i < edges_list.size(); i++)
+    {
+        edges_list[i].first = vert_pos[edges_list[i].first];
+        edges_list[i].second = vert_pos[edges_list[i].second];
+        if (edges_list[i].second < edges_list[i].first)
+        {
+            std::swap(edges_list[i].first, edges_list[i].second);
+        }
         edges[edges_list[i].first].push_back(edges_list[i].second);
     }
     int counter = 0;
@@ -224,29 +255,29 @@ int main(int argc, char *argv[])
         }
         counter += edges[i].size();
     }
+    vertex_places.push_back(counter);
     unsigned long long int output[MAX_DEGREE];
     for (int i = 0; i < k; i++)
     {
         output[i] = 0;
     }
-    vertex_places.push_back(counter);
     int *edges_gpu, *vertex_places_gpu;
     unsigned long long int *output_gpu;
     HANDLE_ERROR(cudaMalloc(&edges_gpu, sizeof(int) * edges_sorted.size()));
-    HANDLE_ERROR(cudaMalloc(&vertex_places_gpu, sizeof(int) * (vertex_num + 1)));
+    HANDLE_ERROR(cudaMalloc(&vertex_places_gpu, sizeof(int) * (vertex_num+1)));
     HANDLE_ERROR(cudaMalloc(&output_gpu, sizeof(unsigned long long int) * k));
     HANDLE_ERROR(cudaMemcpy(edges_gpu, edges_sorted.data(), sizeof(int) * edges_sorted.size(), cudaMemcpyHostToDevice));
-    HANDLE_ERROR(cudaMemcpy(vertex_places_gpu, vertex_places.data(), sizeof(int) * (vertex_num + 1), cudaMemcpyHostToDevice));
+    HANDLE_ERROR(cudaMemcpy(vertex_places_gpu, vertex_places.data(), sizeof(int) * (vertex_num+1), cudaMemcpyHostToDevice));
     HANDLE_ERROR(cudaMemcpy(output_gpu, output, sizeof(unsigned long long int) * k, cudaMemcpyHostToDevice));
     // HANDLE_ERROR(cudaDeviceSynchronize());
-    int constants_to_gpu[MAX_DEGREE], mem_offset = MAX_DEGREE;
+    int constants_to_gpu[MAX_DEGREE + 1], mem_offset = MAX_DEGREE;
     constants_to_gpu[0] = 0;
-    for (int i = 1; i < MAX_DEGREE; i++)
+    for (int i = 1; i <= MAX_DEGREE; i++)
     {
-        constants_to_gpu[i] = constants_to_gpu[i - 1] + (mem_offset + 32) / 32;
+        constants_to_gpu[i] = constants_to_gpu[i - 1] + (mem_offset - 1) / 32 + 1;
         mem_offset--;
     }
-    cudaMemcpyToSymbol(offsets, constants_to_gpu, sizeof(int) * MAX_DEGREE);
+    cudaMemcpyToSymbol(offsets, constants_to_gpu, sizeof(int) * (MAX_DEGREE + 1));
     sort_edges<<<vertex_num, MAX_DEGREE>>>(edges_gpu, vertex_places_gpu); // optimize to infinity
 
     // HANDLE_ERROR(cudaDeviceSynchronize());
@@ -257,7 +288,7 @@ int main(int argc, char *argv[])
     kcliques<<<vertex_num, MAX_DEGREE, maxbytes>>>(k, edges_gpu, vertex_places_gpu, output_gpu);
     HANDLE_ERROR(cudaMemcpy(output, output_gpu, sizeof(unsigned long long int) * k, cudaMemcpyDeviceToHost));
     // HANDLE_ERROR(cudaDeviceSynchronize());
-    output[0] = vertex_num + 1;
+    output[0] = vertex_num;
     output[1] = edges_sorted.size();
     std::ofstream output_stream;
     output_stream.open(std::string(argv[3]));
