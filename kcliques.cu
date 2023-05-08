@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <map>
 #include "common/errors.h"
-#define MAX_DEGREE 768
+#define MAX_DEGREE 1024
 #define MAX_DEPTH 12
 #define OFFSET (MAX_DEGREE + 2) * MAX_DEGREE / 64
 #define MOD 1000000000
@@ -288,8 +288,8 @@ int main(int argc, char *argv[])
 
     // HANDLE_ERROR(cudaDeviceSynchronize());
 
-    int maxbytes = 65536;
-    // int maxbytes = 98304; to restore
+    //int maxbytes = 65536;
+    int maxbytes = 98304;// to restore
     cudaFuncSetAttribute(kcliques, cudaFuncAttributeMaxDynamicSharedMemorySize, maxbytes);
     kcliques<<<vertex_num, MAX_DEGREE, maxbytes>>>(k, edges_gpu, vertex_places_gpu, output_gpu);
     HANDLE_ERROR(cudaMemcpy(output, output_gpu, sizeof(unsigned long long int) * k, cudaMemcpyDeviceToHost));
